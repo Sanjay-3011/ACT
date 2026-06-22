@@ -1,0 +1,390 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="kuka arm URDF">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="0.0017101 0.043371 -0.20438"
+        rpy="0 0 0" />
+      <mass
+        value="70.938" />
+      <inertia
+        ixx="2.1782"
+        ixy="0.036"
+        ixz="0"
+        iyy="1.748"
+        iyz="-0.061"
+        izz="2.234" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://kuka arm URDF/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.91765 0.43922 0.066667 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://kuka arm URDF/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="link1">
+    <inertial>
+      <origin
+        xyz="0.12067 0.084474 0.16276"
+        rpy="0 0 0" />
+      <mass
+        value="20.075" />
+      <inertia
+        ixx="0.517"
+        ixy="0.133"
+        ixz="0.189"
+        iyy="0.636"
+        iyz="0.125"
+        izz="0.544" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://kuka arm URDF/meshes/link1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.91765 0.43922 0.066667 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://kuka arm URDF/meshes/link1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint1"
+    type="revolute">
+    <origin
+      xyz="0 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="link1" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-3.228"
+      upper="3.228"
+      effort="100"
+      velocity="2.72" />
+  </joint>
+  <link
+    name="link2">
+    <inertial>
+      <origin
+        xyz="0.19877 0.23576 0.094679"
+        rpy="0 0 0" />
+      <mass
+        value="13.476" />
+      <inertia
+        ixx="0.337"
+        ixy="0.128"
+        ixz="-0.209"
+        iyy="0.474"
+        iyz="-0.125"
+        izz="0.345" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://kuka arm URDF/meshes/link2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.91765 0.43922 0.066667 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://kuka arm URDF/meshes/link2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint2"
+    type="revolute">
+    <origin
+      xyz="0.2564 0.086523 0.282"
+      rpy="0.9645 1.5708 0" />
+    <parent
+      link="link1" />
+    <child
+      link="link2" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-2.705"
+      upper="0.611"
+      effort="100"
+      velocity="2.72" />
+  </joint>
+  <link
+    name="link3">
+    <inertial>
+      <origin
+        xyz="0.10969 -0.0099279 0.11234"
+        rpy="0 0 0" />
+      <mass
+        value="12.056" />
+      <inertia
+        ixx="0.232"
+        ixy="0.167"
+        ixz="0.097"
+        iyy="0.31"
+        iyz="0.074"
+        izz="0.387" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://kuka arm URDF/meshes/link3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.91765 0.43922 0.066667 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://kuka arm URDF/meshes/link3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint3"
+    type="revolute">
+    <origin
+      xyz="-0.43805 0.52011 0.037"
+      rpy="-3.1416 0 -3.1416" />
+    <parent
+      link="link2" />
+    <child
+      link="link3" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="2.269"
+      upper="2.688"
+      effort="100"
+      velocity="2.72" />
+  </joint>
+  <link
+    name="link4">
+    <inertial>
+      <origin
+        xyz="-0.0031294 -0.0055187 0.10865"
+        rpy="0 0 0" />
+      <mass
+        value="2.439" />
+      <inertia
+        ixx="0.008"
+        ixy="0.004"
+        ixz="0.004"
+        iyy="0.013"
+        iyz="0.002"
+        izz="0.013" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://kuka arm URDF/meshes/link4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.91765 0.43922 0.066667 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://kuka arm URDF/meshes/link4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint4"
+    type="revolute">
+    <origin
+      xyz="0.15493 0.45117 0.13"
+      rpy="1.5708 0.25052 2.7636" />
+    <parent
+      link="link3" />
+    <child
+      link="link4" />
+    <axis
+      xyz="-0.95468 -0.24429 0.17003" />
+    <limit
+      lower="-6.109"
+      upper="6.109"
+      effort="100"
+      velocity="5.76" />
+  </joint>
+  <link
+    name="link5">
+    <inertial>
+      <origin
+        xyz="0.050759 -0.011672 -0.066194"
+        rpy="0 0 0" />
+      <mass
+        value="1.742" />
+      <inertia
+        ixx="0.009"
+        ixy="0.001"
+        ixz="0.001"
+        iyy="0.009"
+        iyz="-0.003"
+        izz="0.01" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://kuka arm URDF/meshes/link5.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.91765 0.43922 0.066667 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://kuka arm URDF/meshes/link5.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint5"
+    type="revolute">
+    <origin
+      xyz="-0.010654 -0.061078 0.19"
+      rpy="-1.5708 -0.96911 2.9689" />
+    <parent
+      link="link4" />
+    <child
+      link="link5" />
+    <axis
+      xyz="0.33012 -0.72979 0.59869" />
+    <limit
+      lower="-2.269"
+      upper="2.269"
+      effort="100"
+      velocity="5.76" />
+  </joint>
+  <link
+    name="link6">
+    <inertial>
+      <origin
+        xyz="2.2204E-16 3.8164E-17 0.01899"
+        rpy="0 0 0" />
+      <mass
+        value="0.061" />
+      <inertia
+        ixx="3.5E-05"
+        ixy="9E-06"
+        ixz="3E-06"
+        iyy="5.7E-05"
+        iyz="1E-06"
+        izz="6E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://kuka arm URDF/meshes/link6.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0 0 0.50196 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://kuka arm URDF/meshes/link6.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint6"
+    type="fixed">
+    <origin
+      xyz="0.13649 0.079584 -0.065"
+      rpy="-1.5708 0.67029 -1.0429" />
+    <parent
+      link="link5" />
+    <child
+      link="link6" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+</robot>
