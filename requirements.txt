@@ -1,0 +1,7 @@
+-r shaka_act/requirements.txt
+
+torch
+torchvision
+numpy
+gymnasium
+panda-gym

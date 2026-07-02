@@ -96,4 +96,8 @@ weights/
 
 # Ignore only generated meshes if desired
 # !src/**/meshes/*.stl
+<<<<<<< HEAD
 # !src/**/meshes/*.dae
+=======
+# !src/**/meshes/*.dae
+>>>>>>> 281bfb0 (final)

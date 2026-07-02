@@ -1,14 +1,13 @@
 cmake_minimum_required(VERSION 3.8)
-project(kuka_description)
+project(kuka_gazebo)
 
 find_package(ament_cmake REQUIRED)
 
-# Install directories containing configurations, launch files, meshes, and URDFs
+# Install directories containing configurations, launch files, and worlds
 install(DIRECTORY
   config
   launch
-  meshes
-  urdf
+  worlds
   DESTINATION share/${PROJECT_NAME}
 )
 

@@ -1,0 +1,130 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="kuka_kr16">
+
+  <!-- Include the official KUKA experimental URDF -->
+  <xacro:include filename="$(find kuka_kr16_support)/urdf/kr16_2.xacro" />
+
+  <!-- Anchor the robot base to the world -->
+  <link name="world"/>
+  
+  <joint name="world_joint" type="fixed">
+    <parent link="world"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ros2_control configuration for Gazebo Classic -->
+  <ros2_control name="GazeboSystem" type="system">
+    <hardware>
+      <plugin>gazebo_ros2_control/GazeboSystem</plugin>
+    </hardware>
+    
+    <joint name="joint_a1">
+      <command_interface name="position">
+        <param name="min">-3.2288</param>
+        <param name="max">3.2288</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="joint_a2">
+      <command_interface name="position">
+        <param name="min">-2.7052</param>
+        <param name="max">0.6108</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="joint_a3">
+      <command_interface name="position">
+        <param name="min">-2.2689</param>
+        <param name="max">2.6878</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="joint_a4">
+      <command_interface name="position">
+        <param name="min">-6.1086</param>
+        <param name="max">6.1086</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="joint_a5">
+      <command_interface name="position">
+        <param name="min">-2.2689</param>
+        <param name="max">2.2689</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="joint_a6">
+      <command_interface name="position">
+        <param name="min">-6.1086</param>
+        <param name="max">6.1086</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+  </ros2_control>
+
+  <!-- Custom tool/end-effector from our original CAD export -->
+  <link name="link_tool">
+    <inertial>
+      <origin xyz="0 0 0.01899" rpy="0 0 0" />
+      <mass value="0.061" />
+      <inertia ixx="3.5e-05" ixy="0.0" ixz="0.0" iyy="5.7e-05" iyz="0.0" izz="6.0e-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://kuka_description/meshes/link6.STL" />
+      </geometry>
+      <material name="tool_blue">
+        <color rgba="0.0 0.0 0.8 1.0" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://kuka_description/meshes/link6.STL" />
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="tool_joint" type="fixed">
+    <parent link="flange"/>
+    <child link="link_tool"/>
+    <origin xyz="0 0 0" rpy="0 1.5708 0"/>
+  </joint>
+
+  <gazebo reference="link_tool">
+    <material>Gazebo/Blue</material>
+  </gazebo>
+
+  <!-- Gazebo ros2_control Plugin -->
+  <gazebo>
+    <plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control.so">
+      <parameters>$(find kuka_gazebo)/config/kuka_controllers.yaml</parameters>
+    </plugin>
+  </gazebo>
+
+</robot>
