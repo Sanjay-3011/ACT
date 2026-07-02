@@ -2,8 +2,6 @@
 
 An end-to-end implementation of **ACT (Action Chunking Transformer)** for closed-loop, vision-based robotic manipulation — trained on self-collected expert demonstrations of a Franka Panda arm performing pick-and-place in PyBullet. The project follows a staged validation methodology (1 → 5 → 55 episodes) to isolate and debug failure modes before committing to full-scale training, rather than training blind on the full dataset and hoping it works.
 
-*(This workspace also includes a separate, completed sub-project: kinematics calibration and URDF modeling for a KUKA KR16-2 industrial arm in ROS 2 / Gazebo — see [Supplementary Work](#supplementary-work-kuka-kr16-gazebo-simulation).)*
-
 ---
 
 ## Project Status: In Progress — Stage 1 (Single-Episode Validation)
@@ -137,13 +135,3 @@ pip install -r requirements.txt
 - [ ] Success rate evaluation on unseen seeds
 - [ ] Rollout demonstration videos (MP4)
 - [ ] 2-page project report: setup, hyperparameters, results, and failure-mode analysis
-
----
-
-## Supplementary Work: KUKA KR16 Gazebo Simulation
-
-A separate, completed sub-project simulating a **KUKA KR16-2** industrial arm in ROS 2 / Gazebo:
-
-* **Kinematics calibration:** realigned skewed joint frames from raw CAD coordinates to clean bases parallel to the robot's base frame
-* **Inertial realignment:** rotated link inertia matrices (`I_new = R_vis · I_old · R_vis^T`) to satisfy physics constraints and eliminate simulation instability
-* **URDF implementation:** standardized package structure under `kuka_description`, with tuned damping/friction thresholds
