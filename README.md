@@ -89,7 +89,6 @@ shaka_act/
 │  # --- Testing & Documentation ---
 ├── cam.ipynb                # Jupyter notebook for checking camera feeds
 ├── replay_episode.ipynb     # Jupyter notebook to play back and verify logged demonstration files
-└── requirements.txt         # Core package dependencies specific to shaka_act
 ```
 
 ---
