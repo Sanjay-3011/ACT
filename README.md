@@ -63,19 +63,33 @@ Currently seeking input on the loss-dilution blocker above:
 
 ```
 .
-├── shaka_act/                  # Core ACT implementation
-│   ├── train.py                # Full-dataset training entrypoint
-│   ├── evaluate_sim.py         # Policy rollout & success-rate evaluation
-│   └── training/utils.py       # Dataset stats, policy factory, image preprocessing
+shaka_act/
 ├── config/
-│   └── config.py               # POLICY_CONFIG, TASK_CONFIG, TRAIN_CONFIG
-├── scripts/
-│   └── overfit_one_episode.py  # Stage 1: single-episode overfitting + rollout
-├── data/
-│   └── panda_pick_and_place/   # episode_0.hdf5 ... episode_54.hdf5 (55 expert demos)
+│   └── config.py            # Hyperparameters and environment configurations (LR, state dimension, camera names, nheads)
 ├── checkpoints/
-│   └── panda_pick_and_place/   # Saved policy checkpoints per experiment
-└── kuka_description/           # Supplementary: KUKA KR16 URDF + kinematics calibration
+│   └── .gitkeep             # Directory where trained checkpoints (.ckpt files) are saved during train.py execution
+├── data/
+│   └── .gitkeep             # Directory where PyBullet expert datasets are saved
+├── training/
+│   ├── policy.py            # ACTPolicy and CNNMLPPolicy wrapper classes that orchestrate DETR model updates
+│   └── utils.py             # Dataloader utilities (EpisodicDataset) and dataset normalizer (get_norm_stats)
+│
+│  # --- Simulator Scripts (PyBullet) ---
+├── record_episodes_sim.py   # State-machine IK expert script used to generate and log 55 demo episodes
+├── train.py                 # Main training script to train the model on the generated HDF5 dataset
+├── evaluate_sim.py          # Evaluation rollout script in simulator incorporating closed-loop temporal aggregation
+│
+│  # --- Physical Robot Scripts (Dynamixel hardware setup) ---
+├── record_episodes.py       # Data logger script for human demonstrations on physical arms
+├── evaluate.py              # Rolout execution script on physical Follower arm
+├── teleoperation.py         # Leader-to-Follower direct torque controller mapping script
+├── robot.py                 # Low-level serial communication configurations for hardware joint encoders
+├── dynamixel.py             # Lower-level command packet mapping for Dynamixel servo protocols
+│
+│  # --- Testing & Documentation ---
+├── cam.ipynb                # Jupyter notebook for checking camera feeds
+├── replay_episode.ipynb     # Jupyter notebook to play back and verify logged demonstration files
+└── requirements.txt         # Core package dependencies specific to shaka_act
 ```
 
 ---
