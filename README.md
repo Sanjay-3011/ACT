@@ -1,4 +1,4 @@
-# Visual Imitation Learning for Robotic Pick-and-Place with Action Chunking Transformers
+# Imitation Learning on Franka Panda Pick-and-Place using Action Chunking Transformer (ACT)
 
 An end-to-end implementation of **ACT (Action Chunking Transformer)** for closed-loop, vision-based robotic manipulation — trained on self-collected expert demonstrations of a Franka Panda arm performing pick-and-place in PyBullet. The project follows a staged validation methodology (1 → 5 → 55 episodes) to isolate and debug failure modes before committing to full-scale training, rather than training blind on the full dataset and hoping it works.
 
@@ -36,11 +36,28 @@ Default config trains the ACT transformer but leaves ResNet-18 frozen (`lr_backb
 **2. `kl_weight = 0` → rollout collapses to a constant mean action.**
 This was the most instructive bug. With `kl_weight = 0`, training loss converges fine (the CVAE encoder sees ground-truth actions and reconstructs them accurately), but at rollout time there's no ground truth — `z` is instead sampled from the prior `N(0, I)`. With KL unregularized, the encoder's posterior never learns to resemble that prior, so the sampled `z` is out-of-distribution for the decoder, and it falls back to predicting the dataset mean action for every step regardless of input. Setting `kl_weight = 10` resolved the collapse: predicted actions now vary meaningfully over the rollout instead of freezing.
 
-**3. Diagnosed L1 loss dilution across action chunks.**
-Even after the KL fix, rollout still fails — the model underpredicts the single largest, most consequential action in the trajectory (the initial reach) while matching the many near-zero "settling" actions later in the chunk. Since L1 loss is averaged uniformly across the full predicted action chunk, and most of any chunk is low-magnitude settling motion, the model can achieve deceptively low aggregate loss while getting the one action that matters most badly wrong. Currently isolating this with per-position loss logging and a decayed learning rate schedule before considering a position-weighted loss function.
+**3. Diagnosed L1 loss dilution across action chunks — current blocker.**
+Even after the KL fix, rollout still fails — 0/1 success on the single episode the policy was directly overfit to. L1 loss plateaus around 0.05–0.06 and does not improve further with additional epochs, while the model badly underpredicts the single largest, most consequential action in the trajectory (the initial reach):
+
+| Step | True gripper action | Predicted | True joint 0 | Predicted |
+|---|---|---|---|---|
+| 0 | 0.4000 | -0.1921 | 1.0000 | -0.0070 |
+| 1 | 0.0486 | -0.0868 | 0.7904 | -0.0082 |
+
+From step 2 onward, predicted and true actions both hover near zero — but that's because the true trajectory *also* settles by then, not because the model is tracking it. Working theory: since L1 loss is averaged uniformly across the full 100-step predicted action chunk, and most of any chunk is low-magnitude settling motion, the model can achieve deceptively low aggregate loss by nailing the easy majority while getting the one action that actually matters badly wrong. Not yet confirmed — currently isolating with per-position loss logging.
 
 **4. Disk I/O was bottlenecking GPU utilization.**
 Reading HDF5 image frames from disk at every training step left the GPU idle between batches. Built a custom `PreloadedEpisodicDataset` that loads all episode data into RAM at startup, pushing GPU utilization to ~99%.
+
+---
+
+## Open Questions
+
+Currently seeking input on the loss-dilution blocker above:
+
+- Does the loss-dilution theory hold, or is there a more likely explanation given the L1/KL numbers observed?
+- Is a position-weighted L1 loss (upweighting early chunk positions) the standard fix for this, or is there a more established approach in the ACT / imitation learning literature?
+- Is near-perfect single-episode overfitting a reasonable bar to clear before moving to the 5-episode stage, or is this staged validation plan too strict?
 
 ---
 
