@@ -5,7 +5,19 @@ import gymnasium as gym
 import panda_gym
 from tqdm import tqdm
 
-def collect_episodes(num_episodes=55, max_steps=120):
+def is_gripping(env):
+    sim = env.unwrapped.sim
+    panda_id = sim._bodies_idx['panda']
+    object_id = sim._bodies_idx['object']
+    contacts = sim.physics_client.getContactPoints(bodyA=panda_id, bodyB=object_id)
+    for c in contacts:
+        link_a = c[3]  # Link index on bodyA (panda)
+        force = c[9]   # Normal force
+        if link_a in [9, 10] and force > 0.01:
+            return True
+    return False
+
+def collect_episodes(num_episodes=55, max_steps=150):
     env = gym.make(
         "PandaPickAndPlace-v3", 
         control_type="joints", 
@@ -14,6 +26,9 @@ def collect_episodes(num_episodes=55, max_steps=120):
         render_height=480,
         max_episode_steps=max_steps
     )
+    # Force the target to always be on the table
+    env.unwrapped.task.goal_range_low[2] = 0.0
+    env.unwrapped.task.goal_range_high[2] = 0.0
     
     # Output directory
     out_dir = "data/panda_pick_and_place"
@@ -119,7 +134,7 @@ def collect_episodes(num_episodes=55, max_steps=120):
             elif state == 5:  # DESCEND_TO_TARGET
                 target_ee_pos = target_pos + np.array([0.0, 0.0, 0.015])
                 target_fingers_width = gripper_closed_width
-                if np.linalg.norm(target_ee_pos - current_ee_pos) < 0.015:
+                if np.linalg.norm(target_ee_pos - current_ee_pos) < 0.005:
                     state = 6
                     state_timer = 0
             
@@ -160,11 +175,20 @@ def collect_episodes(num_episodes=55, max_steps=120):
             obs, reward, terminated, truncated, info = env.step(action[:8])
             
             # Check success
-            if info.get('is_success', False) or terminated:
+            cube_pos = obs['achieved_goal']
+            target_pos = obs['desired_goal']
+            dist = np.linalg.norm(cube_pos - target_pos)
+            gripper_width = robot.get_fingers_width()
+            currently_gripping = is_gripping(env)
+            
+            is_success = (dist < 0.05) and (gripper_width > 0.07) and (not currently_gripping)
+            if is_success:
                 success = True
+                
+            if state == 8:
                 break
                 
-            if terminated or truncated:
+            if truncated:
                 break
                 
         if success:
@@ -204,4 +228,8 @@ def collect_episodes(num_episodes=55, max_steps=120):
     print(f"Successfully collected {num_episodes} demonstration episodes.")
 
 if __name__ == "__main__":
-    collect_episodes(num_episodes=55)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--num_episodes', type=int, default=55, help='Number of episodes to collect')
+    args = parser.parse_args()
+    collect_episodes(num_episodes=args.num_episodes)

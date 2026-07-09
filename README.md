@@ -6,7 +6,7 @@ An end-to-end implementation of **ACT (Action Chunking Transformer)** for closed
 
 ## Project Status: In Progress — Stage 1 (Single-Episode Validation)
 
-**Current milestone:** Debugging single-episode overfitting to confirm the full pipeline — visual backbone, CVAE latent space, action de-normalization, and closed-loop simulator control — is correct before scaling up.
+**Current milestone:** Debugging single-episode overfitting on Episode 1 (with non-degenerate 18.6cm target separation) using the newly collected 150-step ground-level dataset. Tracking L1 loss specifically at chunk position 0 and 1 to address initial reach underprediction.
 
 | Stage | Status |
 |---|---|
@@ -29,33 +29,41 @@ Instead, the project deliberately overfits to 1 episode first: if the model can'
 ## Key Technical Findings So Far
 
 **1. Frozen visual backbone → zero learning signal from pixels.**
-Default config trains the ACT transformer but leaves ResNet-18 frozen (`lr_backbone = 0.0`), so the policy has no way to learn where the cube is. Fixed by unfreezing with `lr_backbone = 2e-5`.
+Default config trains the ACT transformer but leaves ResNet-18 frozen (`lr_backbone = 0.0`), so the policy has no way to learn where the cube is. Fixed by unfreezing the backbone, currently set to `lr_backbone = 1e-5` for stable visual feature learning.
 
 **2. `kl_weight = 0` → rollout collapses to a constant mean action.**
 This was the most instructive bug. With `kl_weight = 0`, training loss converges fine (the CVAE encoder sees ground-truth actions and reconstructs them accurately), but at rollout time there's no ground truth — `z` is instead sampled from the prior `N(0, I)`. With KL unregularized, the encoder's posterior never learns to resemble that prior, so the sampled `z` is out-of-distribution for the decoder, and it falls back to predicting the dataset mean action for every step regardless of input. Setting `kl_weight = 10` resolved the collapse: predicted actions now vary meaningfully over the rollout instead of freezing.
 
-**3. Diagnosed L1 loss dilution across action chunks — current blocker.**
-Even after the KL fix, rollout still fails — 0/1 success on the single episode the policy was directly overfit to. L1 loss plateaus around 0.05–0.06 and does not improve further with additional epochs, while the model badly underpredicts the single largest, most consequential action in the trajectory (the initial reach):
+**3. Diagnosed a real placement bug, and made a deliberate scoping decision.**
+The `DESCEND_TO_TARGET` state was computing the drop position using only the target's (x, y) coordinates combined with a fixed table-level height, ignoring the target's actual z-coordinate — even though `PandaPickAndPlace-v3` randomizes targets across a full 3D range including elevated, mid-air positions. This caused a measured 15.24 cm placement error, almost entirely in the z-axis (cube placed on the table at z≈2cm while the true target was floating at z≈17cm; x/y error alone was under 2cm). Fixed the underlying logic to compute the descent trajectory using the target's full 3D position, not a fixed table height.
 
-| Step | True gripper action | Predicted | True joint 0 | Predicted |
-|---|---|---|---|---|
-| 0 | 0.4000 | -0.1921 | 1.0000 | -0.0070 |
-| 1 | 0.0486 | -0.0868 | 0.7904 | -0.0082 |
+As a deliberate scoping decision for this stage, the environment's target range is currently restricted to table-level only (z=0), to isolate and validate ground-level placement before reintroducing elevated targets as a planned next step. This is a temporary simplification for debugging purposes, not a permanent constraint of the approach.
 
-From step 2 onward, predicted and true actions both hover near zero — but that's because the true trajectory *also* settles by then, not because the model is tracking it. Working theory: since L1 loss is averaged uniformly across the full 100-step predicted action chunk, and most of any chunk is low-magnitude settling motion, the model can achieve deceptively low aggregate loss by nailing the easy majority while getting the one action that actually matters badly wrong. Not yet confirmed — currently isolating with per-position loss logging.
+**4. Re-collected 55-Episode High-Precision Dataset.**
+Re-recorded the entire demonstration dataset (all 55 episodes) with the new 150-step trajectory, including explicit descend-to-target, gripper release, and retract states — ensuring demonstrations end with an actual completed placement (gripper open, arm withdrawn), not just proximity while still gripping. All files verified at 138 MB each.
 
-**4. Disk I/O was bottlenecking GPU utilization.**
+**5. Image Downsampling Speedup.**
+Downsampled visual inputs from 480×640 to 240×320 on-the-fly during dataloading and rollouts, reducing ResNet-18 computation and yielding a ~30% training speedup.
+
+**6. Confirmed Per-Position Loss Mismatch — current blocker.**
+Implemented per-position loss logging to isolate the initial-reach underprediction. Confirmed that L1 loss at chunk positions 0 and 1 is **~3.5x higher** than the average L1 loss across the whole 100-step chunk, and this gap does not close with additional training:
+
+- At Epoch 300: `L1_avg = 0.046`, but `L1_pos0 = 0.160` (16% average error on the Step 0 action) and `L1_pos1 = 0.147` (14.7% error) — both plateaued from roughly epoch 200 onward while the chunk average kept improving.
+- In closed-loop rollout, this shows up concretely: at Step 0 the expert commands a sharp joint-0 swing of -1.0 and a wide gripper opening of 0.40, while the policy predicts near-zero for both (joint 0: -0.003, gripper: 0.011) — a ~6x magnitude miss on the gripper action specifically.
+- This confirms the chunk loss-dilution hypothesis: because the majority of any 100-step action chunk is spent standing still or making micro-adjustments near the target, the network achieves deceptively low aggregate L1 loss by fitting the flat zero region, while structurally under-optimizing the high-amplitude reach action that actually determines task success.
+
+**7. Disk I/O was bottlenecking GPU utilization.**
 Reading HDF5 image frames from disk at every training step left the GPU idle between batches. Built a custom `PreloadedEpisodicDataset` that loads all episode data into RAM at startup, pushing GPU utilization to ~99%.
 
 ---
 
 ## Open Questions
 
-Currently seeking input on the loss-dilution blocker above:
+Currently seeking input on resolving the verified chunk position 0/1 loss dilution:
 
-- Does the loss-dilution theory hold, or is there a more likely explanation given the L1/KL numbers observed?
-- Is a position-weighted L1 loss (upweighting early chunk positions) the standard fix for this, or is there a more established approach in the ACT / imitation learning literature?
-- Is near-perfect single-episode overfitting a reasonable bar to clear before moving to the 5-episode stage, or is this staged validation plan too strict?
+- **Weighted Loss Formulation**: How should we configure a step-dependent weight factor $\mathbf{w}_t$ (e.g., $\mathbf{w}_t = \gamma^t$) during training to force the transformer to prioritize early positions in the action chunk?
+- **Inference Horizon Tuning**: Does decreasing `num_queries` (chunk size) from 100 to a smaller window (e.g., 20 or 30) help reduce the dilution effect, or does that destabilize closed-loop temporal aggregation?
+- **Staged Validation Progression**: Since we have confirmed the pipeline functions correctly and isolated the reach underprediction to chunk-position loss dilution, should we proceed to the 5-episode stage or directly address this loss weighting first?
 
 ---
 
@@ -81,7 +89,7 @@ shaka_act/
 │
 │  # --- Physical Robot Scripts (Dynamixel hardware setup) ---
 ├── record_episodes.py       # Data logger script for human demonstrations on physical arms
-├── evaluate.py              # Rolout execution script on physical Follower arm
+├── evaluate.py              # Rollout execution script on physical Follower arm
 ├── teleoperation.py         # Leader-to-Follower direct torque controller mapping script
 ├── robot.py                 # Low-level serial communication configurations for hardware joint encoders
 ├── dynamixel.py             # Lower-level command packet mapping for Dynamixel servo protocols
@@ -107,7 +115,7 @@ pip install -r requirements.txt
 
 **Stage 1 — Overfit validation (single episode):**
 ```bash
-./venv_act/bin/python scripts/overfit_one_episode.py --task panda_pick_and_place
+./venv_act/bin/python scratch/overfit_one_episode.py --task panda_pick_and_place
 ```
 
 **Full training (55 episodes):**
@@ -125,15 +133,17 @@ pip install -r requirements.txt
 ## Task Definition
 
 * **Environment:** `PandaPickAndPlace-v3` (panda-gym / PyBullet), Franka Emika Panda arm
-* **Goal:** relocate a cube to a randomized target position; success if cube-to-target distance ≤ 5 cm
-* **Episode length:** max 120 steps, auto-reset on termination
-* **Expert data:** 55 successful demonstrations from a custom IK-based state-machine controller (approach → grasp → lift → translate → release)
+* **Goal:** relocate a cube to a target position; success if cube-to-target distance ≤ 5 cm
+* **Episode length:** max 150 steps, auto-reset on termination
+* **Note on success criterion:** the environment's default check is proximity-only (distance ≤ 5cm), which does not require the gripper to actually release the cube. To ensure demonstrations reflect a genuinely completed placement, the expert controller's own state machine additionally requires the gripper to open and the arm to retract before an episode is logged as complete.
+* **Current scope:** target positions are currently restricted to table-level (z=0) placements as a debugging simplification; elevated/mid-air target placement (part of the environment's default task) is a planned extension once ground-level policy training is validated.
+* **Expert data:** 55 successful demonstrations from a custom IK-based state-machine controller (approach → grasp → lift → translate → descend to target → release → retract)
 * **Observations:** 14-dim state (7 joint positions, 1 gripper width, 3 cube coords, 3 target coords) + 640×480 RGB front camera frames
 * **Actions:** 14-dim target joint values + gripper command
 
 ## Model Configuration
 
-* **Visual backbone:** ResNet-18, fine-tuned (`lr_backbone = 2e-5`)
+* **Visual backbone:** ResNet-18, fine-tuned (`lr_backbone = 1e-5`)
 * **Policy:** ACT (CVAE-based Action Chunking Transformer), `kl_weight = 10`
 * **Chunk size:** 100 steps (`num_queries`)
 * **Inference:** temporal aggregation with exponential-decay blending across overlapping chunk predictions

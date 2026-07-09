@@ -28,7 +28,7 @@ for arg in sys.argv:
 if task_name == 'panda_pick_and_place':
     state_dim = 14
     action_dim = 14
-    episode_len = 120
+    episode_len = 150
 else:
     state_dim = 5
     action_dim = 5
@@ -57,7 +57,7 @@ POLICY_CONFIG = {
     'lr': 2e-4,
     'device': device,
     'num_queries': 100,
-    'kl_weight': 0,
+    'kl_weight': 10,
     'hidden_dim': 512,
     'dim_feedforward': 3200,
     'lr_backbone': 2e-5,

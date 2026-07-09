@@ -8,6 +8,7 @@ warnings.filterwarnings('ignore')
 import os
 import pickle
 import torch
+import torch.nn.functional as F
 import numpy as np
 import h5py
 import gymnasium as gym
@@ -93,13 +94,15 @@ class PreloadedEpisodicDataset(torch.utils.data.Dataset):
             all_cam_images.append(image_dict[cam_name])
         all_cam_images = np.stack(all_cam_images, axis=0)
         
-        image_data = torch.from_numpy(all_cam_images)
+        image_data = torch.from_numpy(all_cam_images).float()
         qpos_data = torch.from_numpy(qpos).float()
         action_data = torch.from_numpy(padded_action).float()
         is_pad = torch.from_numpy(is_pad).bool()
         
         image_data = torch.einsum('k h w c -> k c h w', image_data)
         image_data = image_data / 255.0
+        # Resize to 240x320 for 4x training speedup
+        image_data = F.interpolate(image_data, size=(240, 320), mode='bilinear', align_corners=False)
         
         action_data = (action_data - self.norm_stats["action_mean"]) / self.norm_stats["action_std"]
         qpos_data = (qpos_data - self.norm_stats["qpos_mean"]) / self.norm_stats["qpos_std"]
@@ -113,12 +116,45 @@ def train_and_eval_one_episode():
     
     # 1. Modify configs for 1 episode overfitting
     POLICY_CONFIG['kl_weight'] = 10
-    POLICY_CONFIG['lr'] = 1e-5
+    POLICY_CONFIG['lr'] = 1e-4
     POLICY_CONFIG['lr_backbone'] = 1e-5
     POLICY_CONFIG['temporal_agg'] = True
     
-    # We load stats only on episode 0
-    stats = get_norm_stats(dataset_dir, num_episodes=1)
+    # We load stats only on episode 1
+    def get_norm_stats_for_episode(dataset_dir, episode_idx):
+        dataset_path = os.path.join(dataset_dir, f'episode_{episode_idx}.hdf5')
+        with h5py.File(dataset_path, 'r') as root:
+            qpos = root['/observations/qpos'][()]
+            action = root['/action'][()]
+            
+            # Find actual active length
+            active_len = len(action)
+            for idx in range(len(action) - 1, -1, -1):
+                if np.any(action[idx] != 0):
+                    active_len = idx + 1
+                    break
+                    
+            qpos_data = torch.from_numpy(qpos[:active_len])
+            action_data = torch.from_numpy(action[:active_len])
+            
+            action_mean = action_data.mean(dim=0)
+            action_std = action_data.std(dim=0)
+            action_std = torch.clip(action_std, 1e-2, np.inf)
+            
+            qpos_mean = qpos_data.mean(dim=0)
+            qpos_std = qpos_data.std(dim=0)
+            qpos_std = torch.clip(qpos_std, 1e-2, np.inf)
+            
+            stats = {
+                "action_mean": action_mean.numpy(),
+                "action_std": action_std.numpy(),
+                "qpos_mean": qpos_mean.numpy(),
+                "qpos_std": qpos_std.numpy(),
+                "example_qpos": qpos
+            }
+            return stats
+            
+    stats = get_norm_stats_for_episode(dataset_dir, episode_idx=1)
     
     # Save stats
     checkpoint_dir = os.path.join(TRAIN_CONFIG['checkpoint_dir'], task)
@@ -126,8 +162,8 @@ def train_and_eval_one_episode():
     with open(os.path.join(checkpoint_dir, 'dataset_stats.pkl'), 'wb') as f:
         pickle.dump(stats, f)
         
-    # Create dataset with train_indices = [0]
-    train_dataset = PreloadedEpisodicDataset([0], dataset_dir, TASK_CONFIG['camera_names'], stats)
+    # Create dataset with train_indices = [1]
+    train_dataset = PreloadedEpisodicDataset([1], dataset_dir, TASK_CONFIG['camera_names'], stats)
     train_dataloader = DataLoader(train_dataset, batch_size=8, shuffle=True, pin_memory=True, num_workers=0)
     
     # Make policy
@@ -138,12 +174,14 @@ def train_and_eval_one_episode():
     
     optimizer = policy.configure_optimizers()
     
-    # 2. Train for 1000 epochs
-    print("\n=== STARTING OVERFITTING TRAINING ON EPISODE 0 ===", flush=True)
+    # 2. Train for 300 epochs
+    print("\n=== STARTING OVERFITTING TRAINING ON EPISODE 1 ===", flush=True)
     policy.train()
-    for epoch in range(1000):
+    for epoch in range(300):
         epoch_loss = 0
         epoch_l1 = 0
+        epoch_l1_pos0 = 0
+        epoch_l1_pos1 = 0
         epoch_kl = 0
         batch_count = 0
         for data in train_dataloader:
@@ -162,10 +200,24 @@ def train_and_eval_one_episode():
             epoch_loss += loss.item()
             epoch_l1 += forward_dict['l1'].item()
             epoch_kl += forward_dict['kl'].item()
+            
+            # Position 0 L1
+            a_hat = forward_dict['a_hat']
+            l1_pos0 = torch.abs(action_data[:, 0] - a_hat[:, 0])
+            mask0 = ~is_pad[:, 0].unsqueeze(-1)
+            l1_pos0 = (l1_pos0 * mask0).sum() / (mask0.sum() + 1e-6)
+            
+            # Position 1 L1
+            l1_pos1 = torch.abs(action_data[:, 1] - a_hat[:, 1])
+            mask1 = ~is_pad[:, 1].unsqueeze(-1)
+            l1_pos1 = (l1_pos1 * mask1).sum() / (mask1.sum() + 1e-6)
+            
+            epoch_l1_pos0 += l1_pos0.item()
+            epoch_l1_pos1 += l1_pos1.item()
             batch_count += 1
             
         if (epoch + 1) % 10 == 0:
-            print(f"Epoch {epoch+1:3d} | Loss: {epoch_loss/batch_count:.6f} | L1: {epoch_l1/batch_count:.6f} | KL: {epoch_kl/batch_count:.6f}", flush=True)
+            print(f"Epoch {epoch+1:3d} | Loss: {epoch_loss/batch_count:.6f} | L1_avg: {epoch_l1/batch_count:.6f} | L1_pos0: {epoch_l1_pos0/batch_count:.6f} | L1_pos1: {epoch_l1_pos1/batch_count:.6f} | KL: {epoch_kl/batch_count:.6f}", flush=True)
             
     # Save checkpoint
     ckpt_path = os.path.join(checkpoint_dir, 'policy_last_1000epochs.ckpt')
@@ -176,8 +228,8 @@ def train_and_eval_one_episode():
     print("\n=== STARTING ROLLOUT EVALUATION ===")
     policy.eval()
     
-    # Load episode 0 data to set initial state and track targets
-    with h5py.File(os.path.join(dataset_dir, "episode_0.hdf5"), 'r') as root:
+    # Load episode 1 data to set initial state and track targets
+    with h5py.File(os.path.join(dataset_dir, "episode_1.hdf5"), 'r') as root:
         true_actions = root['action'][()]
         true_qpos = root['observations/qpos'][()]
         
@@ -199,13 +251,14 @@ def train_and_eval_one_episode():
         sim.set_joint_angle(robot.body_name, finger_idx, gripper_width / 2.0)
     sim.set_base_pose("object", position=cube_pos, orientation=np.array([1.0, 0.0, 0.0, 0.0]))
     sim.set_base_pose("target", position=target_pos, orientation=np.array([1.0, 0.0, 0.0, 0.0]))
+    env.unwrapped.task.goal = target_pos.copy()
     
     pre_process = lambda s_qpos: (s_qpos - stats['qpos_mean']) / stats['qpos_std']
     post_process = lambda a: a * stats['action_std'] + stats['action_mean']
     
     temporal_agg = POLICY_CONFIG['temporal_agg']
     query_frequency = POLICY_CONFIG['num_queries']
-    max_steps = 120
+    max_steps = 150
     state_dim = POLICY_CONFIG['state_dim']
     
     if temporal_agg:
@@ -233,6 +286,7 @@ def train_and_eval_one_episode():
         with torch.inference_mode():
             images_dict = {'front': img}
             curr_image = get_image(images_dict, POLICY_CONFIG['camera_names'], device)
+            curr_image = F.interpolate(curr_image.squeeze(0), size=(240, 320), mode='bilinear', align_corners=False).unsqueeze(0)
             
             if temporal_agg:
                 all_actions = policy(qpos_torch, curr_image)
@@ -260,18 +314,26 @@ def train_and_eval_one_episode():
         obs, reward, terminated, truncated, info = env.step(action)
         
         # Print comparison for debugging
-        if t < 10:
-            true_act = true_actions[t]
+        if t <= 15 or t % 5 == 0:
+            true_act = true_actions[t] if t < len(true_actions) else np.zeros(8)
             print(f"Step {t:2d} | True gripper act: {true_act[7]:.4f} | Pred gripper act: {action[7]:.4f} | True joint 0: {true_act[0]:.4f} | Pred joint 0: {action[0]:.4f}", flush=True)
             
         if info.get('is_success', False):
             success = True
             print(f"\nSUCCESS ACHIEVED AT STEP {t}!", flush=True)
-            break
             
         if terminated or truncated:
+            print(f"Environment ended at step {t}. Terminated={terminated}, Truncated={truncated}", flush=True)
             break
             
+    final_cube_pos = obs['achieved_goal']
+    final_dist = np.linalg.norm(final_cube_pos - target_pos)
+    print("\n=== FINAL PLACEMENT RESULTS ===")
+    print(f"Final Cube Position (Actual):  {final_cube_pos}")
+    print(f"Desired Target Position:       {target_pos}")
+    print(f"Placement Error (Distance):    {final_dist:.6f} meters ({(final_dist * 100):.2f} cm)")
+    print("===============================\n")
+    
     print(f"\nEpisode Rollout Complete. Success: {success}", flush=True)
     env.close()
 

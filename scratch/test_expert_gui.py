@@ -1,6 +1,7 @@
 import gymnasium as gym
 import panda_gym
 import numpy as np
+import time
 
 def is_gripping(env):
     sim = env.unwrapped.sim
@@ -14,14 +15,12 @@ def is_gripping(env):
             return True
     return False
 
-def test_single_episode():
-    # Allow 200 steps
+def test_single_episode_gui():
+    # Set render_mode to "human" to open the interactive 3D PyBullet GUI window
     env = gym.make(
         "PandaPickAndPlace-v3", 
         control_type="joints", 
-        render_mode="rgb_array", 
-        render_width=640, 
-        render_height=480,
+        render_mode="human", 
         max_episode_steps=200
     )
     # Force the target to always be on the table
@@ -46,8 +45,6 @@ def test_single_episode():
         current_fingers_width = robot.get_fingers_width()
         
         arm_joint_angles = np.array([robot.get_joint_angle(joint=i) for i in range(7)])
-        cube_pos = obs['achieved_goal'].copy()
-        target_pos = obs['desired_goal'].copy()
         
         target_ee_pos = current_ee_pos.copy()
         target_fingers_width = current_fingers_width
@@ -86,7 +83,7 @@ def test_single_episode():
                 print(f"Step {step}: Transition to MOVE_ABOVE_TARGET. dist={dist:.4f}")
         
         elif state == 4:  # MOVE_ABOVE_TARGET
-            target_ee_pos = target_pos + np.array([0.0, 0.0, 0.15])
+            target_ee_pos = obs['desired_goal'].copy() + np.array([0.0, 0.0, 0.15])
             target_fingers_width = gripper_closed_width
             dist = np.linalg.norm(target_ee_pos - current_ee_pos)
             if dist < 0.02:
@@ -94,7 +91,7 @@ def test_single_episode():
                 print(f"Step {step}: Transition to DESCEND_TO_TARGET. dist={dist:.4f}")
         
         elif state == 5:  # DESCEND_TO_TARGET
-            target_ee_pos = target_pos + np.array([0.0, 0.0, 0.015])
+            target_ee_pos = obs['desired_goal'].copy() + np.array([0.0, 0.0, 0.015])
             target_fingers_width = gripper_closed_width
             dist = np.linalg.norm(target_ee_pos - current_ee_pos)
             if dist < 0.005:
@@ -103,7 +100,7 @@ def test_single_episode():
                 print(f"Step {step}: Transition to OPEN_GRIPPER. dist={dist:.4f}")
         
         elif state == 6:  # OPEN_GRIPPER
-            target_ee_pos = target_pos + np.array([0.0, 0.0, 0.015])
+            target_ee_pos = obs['desired_goal'].copy() + np.array([0.0, 0.0, 0.015])
             target_fingers_width = gripper_open_width
             state_timer += 1
             if state_timer > 15:
@@ -111,7 +108,7 @@ def test_single_episode():
                 print(f"Step {step}: Transition to RETRACT. gripper_width={current_fingers_width:.4f}")
         
         elif state == 7:  # RETRACT
-            target_ee_pos = target_pos + np.array([0.0, 0.0, 0.15])
+            target_ee_pos = obs['desired_goal'].copy() + np.array([0.0, 0.0, 0.15])
             target_fingers_width = gripper_open_width
             dist = np.linalg.norm(target_ee_pos - current_ee_pos)
             if dist < 0.015:
@@ -137,6 +134,9 @@ def test_single_episode():
         action = np.concatenate([action_joints, [action_gripper]])
         
         obs, reward, terminated, truncated, info = env.step(action)
+        
+        # Add a tiny delay to make the simulation readable/smooth to human eyes
+        time.sleep(0.02)
         
         # Check success
         cube_pos = obs['achieved_goal']
@@ -167,7 +167,22 @@ def test_single_episode():
     print("===============================\n")
     
     print(f"Episode finished. Success: {success}")
-    env.close()
+    
+    # Keep the window open and responsive after execution completes
+    print("Keeping simulation window open. Close the PyBullet window or press Ctrl+C in terminal to exit.")
+    try:
+        sim = env.unwrapped.sim
+        while True:
+            # Check if visualizer is still connected
+            if not sim.physics_client.isConnected():
+                break
+            # Step the simulation slightly to keep interface active
+            sim.physics_client.stepSimulation()
+            time.sleep(0.1)
+    except KeyboardInterrupt:
+        print("\nExiting simulation.")
+    finally:
+        env.close()
 
 if __name__ == "__main__":
-    test_single_episode()
+    test_single_episode_gui()
