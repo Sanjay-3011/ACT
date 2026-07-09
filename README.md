@@ -52,11 +52,6 @@ ACT predicts a chunk of ~100 future actions at once and trains with L1 loss aver
 
 This has been confirmed with direct measurement, not just theory: at convergence (epoch 300), the average L1 loss across the whole chunk is 0.046, but the loss specifically at chunk position 0 (the very next action) is 0.160 — roughly **3.5x higher**, and this gap does not close with more training; it plateaus independently of the overall average. In closed-loop rollout this shows up concretely: the expert commands a sharp joint-0 swing of -1.0 and a wide gripper opening of 0.40 at Step 0, while the policy predicts near-zero for both (joint 0: -0.003, gripper: 0.011).
 
-**Already fixed along the way (worth noting since these were real, non-obvious bugs):**
-- Frozen visual backbone (`lr_backbone = 0`) silently prevented any learning from camera pixels — fixed by unfreezing (`lr_backbone = 1e-5`).
-- `kl_weight = 0` caused the CVAE's latent space to go unregularized, so at rollout the policy received an out-of-distribution latent vector and collapsed to predicting a constant mean action — fixed with `kl_weight = 10`.
-- The expert controller's placement logic used a fixed table height instead of the target's real 3D position, causing large placement errors when targets were elevated — fixed the descent logic to use the target's true (x, y, z); elevated targets are temporarily disabled (table-level only) as a debugging simplification, to be reintroduced once ground-level training is validated.
-
 **Currently deciding on the fix** for the loss dilution issue — most likely a position-weighted L1 loss that upweights early chunk positions relative to later ones — before proceeding further.
 
 ---
