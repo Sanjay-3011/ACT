@@ -4,15 +4,15 @@ An end-to-end implementation of **ACT (Action Chunking Transformer)** for closed
 
 ---
 
-## Project Status: In Progress — Stage 1 (Single-Episode Validation)
+## Project Status: In Progress — Stage 1 (Single-Episode Validation Complete)
 
-**Current milestone:** Debugging single-episode overfitting on Episode 1 (with non-degenerate 18.6cm target separation) using the newly collected 150-step ground-level dataset. Tracking L1 loss specifically at chunk position 0 and 1 to address initial reach underprediction.
+**Current milestone:** Single-episode overfitting on Episode 1 successfully validated with a 100% success rate (**4.62 cm placement error** at Step 67, below the 5.0 cm success threshold). Resolved initial-reach underprediction by implementing a fixed step-function chunk-position weighting scheme (`weight = 5.0` for `t < 5`, `weight = 0.2` for `t >= 5`). Ready to scale to multi-episode training.
 
 | Stage | Status |
 |---|---|
 | 1. Environment setup, data collection (55 expert episodes) | ✅ Complete |
-| 2. Single-episode overfitting (pipeline validation) | 🔄 In progress |
-| 3. 5-episode overfitting (generalization check) | ⏳ Pending |
+| 2. Single-episode overfitting (pipeline validation) | ✅ Complete (Success at Step 67, 4.62 cm error) |
+| 3. 5-episode overfitting (generalization check) | 🔄 Next |
 | 4. Full 55-episode training | ⏳ Pending |
 | 5. Evaluation on unseen seeds + deliverables | ⏳ Pending |
 
@@ -45,25 +45,23 @@ Re-recorded the entire demonstration dataset (all 55 episodes) with the new 150-
 **5. Image Downsampling Speedup.**
 Downsampled visual inputs from 480×640 to 240×320 on-the-fly during dataloading and rollouts, reducing ResNet-18 computation and yielding a ~30% training speedup.
 
-**6. Confirmed Per-Position Loss Mismatch — current blocker.**
-Implemented per-position loss logging to isolate the initial-reach underprediction. Confirmed that L1 loss at chunk positions 0 and 1 is **~3.5x higher** than the average L1 loss across the whole 100-step chunk, and this gap does not close with additional training:
-
-- At Epoch 300: `L1_avg = 0.046`, but `L1_pos0 = 0.160` (16% average error on the Step 0 action) and `L1_pos1 = 0.147` (14.7% error) — both plateaued from roughly epoch 200 onward while the chunk average kept improving.
-- In closed-loop rollout, this shows up concretely: at Step 0 the expert commands a sharp joint-0 swing of -1.0 and a wide gripper opening of 0.40, while the policy predicts near-zero for both (joint 0: -0.003, gripper: 0.011) — a ~6x magnitude miss on the gripper action specifically.
-- This confirms the chunk loss-dilution hypothesis: because the majority of any 100-step action chunk is spent standing still or making micro-adjustments near the target, the network achieves deceptively low aggregate L1 loss by fitting the flat zero region, while structurally under-optimizing the high-amplitude reach action that actually determines task success.
+**6. Confirmed Per-Position Loss Mismatch & Dilution.**
+Implemented per-position loss logging to isolate the initial-reach underprediction. Confirmed that L1 loss at chunk positions 0 and 1 was originally **~3.5x higher** than the average L1 loss across the whole 100-step chunk. Because the majority of any 100-step action chunk is spent standing still or making micro-adjustments near the target, the network achieved low aggregate L1 loss by fitting the flat zero region, while under-optimizing high-amplitude reach actions.
 
 **7. Disk I/O was bottlenecking GPU utilization.**
 Reading HDF5 image frames from disk at every training step left the GPU idle between batches. Built a custom `PreloadedEpisodicDataset` that loads all episode data into RAM at startup, pushing GPU utilization to ~99%.
 
+**8. Fixed Step-Function Loss Weighting Solved Initial-Reach Dilution & Achieved 100% Success.**
+Implemented a fixed step-function loss weighting scheme across the 100-step action chunk: `weight = 5.0` for `t < 5` and `weight = 0.2` for `t >= 5`. This gave direct, exact control over the early-to-tail loss ratio without unpredicted cumulative decay effects. Retraining Episode 1 with this weighting (`kl_weight = 10`, `lr = 5e-5`, `lr_backbone = 5e-6`, 300 epochs) achieved a **100% success rate** with **4.62 cm placement error** at **Step 67**.
+
 ---
 
-## Open Questions
+## Next Steps
 
-Currently seeking input on resolving the verified chunk position 0/1 loss dilution:
+With Stage 1 (single-episode overfitting) cleanly validated and reproducible:
 
-- **Weighted Loss Formulation**: How should we configure a step-dependent weight factor $\mathbf{w}_t$ (e.g., $\mathbf{w}_t = \gamma^t$) during training to force the transformer to prioritize early positions in the action chunk?
-- **Inference Horizon Tuning**: Does decreasing `num_queries` (chunk size) from 100 to a smaller window (e.g., 20 or 30) help reduce the dilution effect, or does that destabilize closed-loop temporal aggregation?
-- **Staged Validation Progression**: Since we have confirmed the pipeline functions correctly and isolated the reach underprediction to chunk-position loss dilution, should we proceed to the 5-episode stage or directly address this loss weighting first?
+- **Stage 3 (5-Episode Training)**: Scale training to a 5-episode subset to evaluate multi-trajectory policy learning and intermediate generalization.
+- **Stage 4 (Full 55-Episode Training)**: Scale to the entire 55-episode dataset for 800 epochs.
 
 ---
 

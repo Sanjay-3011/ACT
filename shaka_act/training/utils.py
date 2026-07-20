@@ -4,6 +4,7 @@ import torch
 import numpy as np
 from einops import rearrange
 from torch.utils.data import DataLoader
+import torchvision.transforms as transforms
 
 from training.policy import ACTPolicy, CNNMLPPolicy
 
@@ -13,91 +14,109 @@ e = IPython.embed
 
 class EpisodicDataset(torch.utils.data.Dataset):
     def __init__(self, episode_ids, dataset_dir, camera_names, norm_stats, is_train=False):
-        super(EpisodicDataset).__init__()
+        super().__init__()
         self.episode_ids = episode_ids
         self.dataset_dir = dataset_dir
         self.camera_names = camera_names
         self.norm_stats = norm_stats
-        self.is_sim = None
         self.is_train = is_train
-        self.transform = None
+        if is_train:
+            self.transform = transforms.Compose([
+                transforms.Resize(size=(224, 224)),
+                transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
+                transforms.RandomCrop(size=(200, 200)),
+                transforms.Resize(size=(224, 224))
+            ])
+        else:
+            self.transform = transforms.Resize(size=(224, 224))
+        
+        # Preload all episodes in RAM to eliminate disk I/O bottlenecks
+        print(f"Preloading {len(episode_ids)} episodes into RAM...", flush=True)
+        self.episodes_data = {}
+        for ep_id in episode_ids:
+            dataset_path = os.path.join(self.dataset_dir, f'episode_{ep_id}.hdf5')
+            with h5py.File(dataset_path, 'r') as root:
+                is_sim = root.attrs['sim']
+                original_action_shape = root['/action'].shape
+                episode_len = original_action_shape[0]
+                
+                action_full = root['/action'][()]
+                active_len = len(action_full)
+                for idx in range(len(action_full) - 1, -1, -1):
+                    if np.any(action_full[idx] != 0):
+                        active_len = idx + 1
+                        break
+                        
+                images_all = {}
+                for cam_name in camera_names:
+                    images_all[cam_name] = root[f'/observations/images/{cam_name}'][()]
+                qpos_all = root['/observations/qpos'][()]
+                action_all = root['/action'][()]
+                
+            self.episodes_data[ep_id] = {
+                'is_sim': is_sim,
+                'original_action_shape': original_action_shape,
+                'episode_len': episode_len,
+                'active_len': active_len,
+                'images_all': images_all,
+                'qpos_all': qpos_all,
+                'action_all': action_all
+            }
+        self.is_sim = is_sim
 
     def __len__(self):
         return len(self.episode_ids) * 150
 
     def __getitem__(self, index):
-        sample_full_episode = False # hardcode
-
         episode_id = self.episode_ids[index % len(self.episode_ids)]
-        dataset_path = os.path.join(self.dataset_dir, f'episode_{episode_id}.hdf5')
-        with h5py.File(dataset_path, 'r') as root:
-            is_sim = root.attrs['sim']
-            original_action_shape = root['/action'].shape
-            episode_len = original_action_shape[0]
+        ep = self.episodes_data[episode_id]
+        
+        active_len = ep['active_len']
+        if active_len > 1:
+            start_ts = np.random.choice(active_len - 1)
+        else:
+            start_ts = 0
             
-            # Find actual active length of the episode (excluding padded zeros)
-            action_full = root['/action'][()]
-            active_len = len(action_full)
-            for idx in range(len(action_full) - 1, -1, -1):
-                if np.any(action_full[idx] != 0):
-                    active_len = idx + 1
-                    break
+        qpos = ep['qpos_all'][start_ts]
+        image_dict = {}
+        for cam_name in self.camera_names:
+            image_dict[cam_name] = ep['images_all'][cam_name][start_ts]
             
-            if sample_full_episode:
-                start_ts = 0
-            else:
-                if active_len > 1:
-                    start_ts = np.random.choice(active_len - 1)
-                else:
-                    start_ts = 0
-            # get observation at start_ts only
-            qpos = root['/observations/qpos'][start_ts]
-            qvel = root['/observations/qvel'][start_ts]
-            image_dict = dict()
-            for cam_name in self.camera_names:
-                image_dict[cam_name] = root[f'/observations/images/{cam_name}'][start_ts]
-            # get actions after start_ts up to active_len
-            if is_sim:
-                action = root['/action'][start_ts:active_len]
-                action_len = active_len - start_ts
-            else:
-                action = root['/action'][max(0, start_ts - 1):active_len] # hack, to make timesteps more aligned
-                action_len = active_len - max(0, start_ts - 1) # hack, to make timesteps more aligned
-
-        self.is_sim = is_sim
-        padded_action = np.zeros(original_action_shape, dtype=np.float32)
+        if ep['is_sim']:
+            action = ep['action_all'][start_ts:active_len]
+            action_len = active_len - start_ts
+        else:
+            action = ep['action_all'][max(0, start_ts - 1):active_len]
+            action_len = active_len - max(0, start_ts - 1)
+            
+        padded_action = np.zeros(ep['original_action_shape'], dtype=np.float32)
         padded_action[:action_len] = action
-        is_pad = np.zeros(episode_len)
+        is_pad = np.zeros(ep['episode_len'])
         is_pad[action_len:] = 1
-
-        # new axis for different cameras
+        
         all_cam_images = []
         for cam_name in self.camera_names:
             all_cam_images.append(image_dict[cam_name])
         all_cam_images = np.stack(all_cam_images, axis=0)
-
-        # construct observations
+        
         image_data = torch.from_numpy(all_cam_images)
         qpos_data = torch.from_numpy(qpos).float()
         action_data = torch.from_numpy(padded_action).float()
         is_pad = torch.from_numpy(is_pad).bool()
-
-        # channel last
-        image_data = torch.einsum('k h w c -> k c h w', image_data)
-
-        # normalize image and change dtype to float
-        image_data = image_data / 255.0
         
-        # apply online augmentations if training
+        image_data = torch.einsum('k h w c -> k c h w', image_data)
+        
         if self.transform is not None:
             augmented_images = []
             for cam_img in image_data:
                 augmented_images.append(self.transform(cam_img))
             image_data = torch.stack(augmented_images, dim=0)
-
+            
+        image_data = image_data.float() / 255.0
+            
         action_data = (action_data - self.norm_stats["action_mean"]) / self.norm_stats["action_std"]
         qpos_data = (qpos_data - self.norm_stats["qpos_mean"]) / self.norm_stats["qpos_std"]
-
+        
         return image_data, qpos_data, action_data, is_pad
 
 
@@ -154,8 +173,8 @@ def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_s
     # construct dataset and dataloader
     train_dataset = EpisodicDataset(train_indices, dataset_dir, camera_names, norm_stats, is_train=True)
     val_dataset = EpisodicDataset(val_indices, dataset_dir, camera_names, norm_stats, is_train=False)
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True, num_workers=4, prefetch_factor=2)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size_val, shuffle=True, pin_memory=True, num_workers=4, prefetch_factor=2)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True, num_workers=0)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size_val, shuffle=True, pin_memory=True, num_workers=0)
 
     return train_dataloader, val_dataloader, norm_stats, train_dataset.is_sim
 
@@ -221,19 +240,22 @@ def get_image(images, camera_names, device='cpu'):
     curr_images = []
     for cam_name in camera_names:
         curr_image = rearrange(images[cam_name], 'h w c -> c h w')
+        curr_image = torch.from_numpy(curr_image / 255.0).float()
         curr_images.append(curr_image)
-    curr_image = np.stack(curr_images, axis=0)
-    curr_image = torch.from_numpy(curr_image / 255.0).float().to(device).unsqueeze(0)
+    curr_image = torch.stack(curr_images, dim=0).to(device).unsqueeze(0)
     return curr_image
 
 def compute_dict_mean(epoch_dicts):
-    result = {k: None for k in epoch_dicts[0]}
+    result = {}
     num_items = len(epoch_dicts)
-    for k in result:
-        value_sum = 0
-        for epoch_dict in epoch_dicts:
-            value_sum += epoch_dict[k]
-        result[k] = value_sum / num_items
+    for k in epoch_dicts[0]:
+        # Only compute mean and include in result if the key is a scalar to avoid batch-size shape mismatch and item() printing errors
+        is_scalar = isinstance(epoch_dicts[0][k], (int, float)) or (isinstance(epoch_dicts[0][k], torch.Tensor) and epoch_dicts[0][k].ndim == 0)
+        if is_scalar:
+            value_sum = 0
+            for epoch_dict in epoch_dicts:
+                value_sum += epoch_dict[k]
+            result[k] = value_sum / num_items
     return result
 
 def detach_dict(d):

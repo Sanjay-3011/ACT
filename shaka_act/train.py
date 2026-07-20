@@ -99,7 +99,9 @@ def train_bc(train_dataloader, val_dataloader, policy_config):
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
-            train_history.append(detach_dict(forward_dict))
+            # Store only scalar metrics to avoid plotting crashes and save GPU memory
+            forward_dict_scalars = {k: v.detach() for k, v in forward_dict.items() if isinstance(v, torch.Tensor) and v.ndim == 0}
+            train_history.append(forward_dict_scalars)
         epoch_summary = compute_dict_mean(train_history[(batch_idx+1)*epoch:(batch_idx+1)*(epoch+1)])
         epoch_train_loss = epoch_summary['loss']
         print(f'Train loss: {epoch_train_loss:.5f}')

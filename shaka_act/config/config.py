@@ -54,13 +54,13 @@ TASK_CONFIG = {
 
 # policy config
 POLICY_CONFIG = {
-    'lr': 2e-4,
+    'lr': 5e-5,
     'device': device,
     'num_queries': 100,
     'kl_weight': 10,
     'hidden_dim': 512,
     'dim_feedforward': 3200,
-    'lr_backbone': 2e-5,
+    'lr_backbone': 0.0,
     'backbone': 'resnet18',
     'enc_layers': 4,
     'dec_layers': 7,
@@ -75,7 +75,7 @@ POLICY_CONFIG = {
 # training config
 TRAIN_CONFIG = {
     'seed': 42,
-    'num_epochs': 100,
+    'num_epochs': 800,
     'batch_size_val': 8,
     'batch_size_train': 8,
     'eval_ckpt_name': 'policy_last.ckpt',

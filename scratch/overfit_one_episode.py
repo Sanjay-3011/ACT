@@ -44,7 +44,12 @@ class PreloadedEpisodicDataset(torch.utils.data.Dataset):
                 
                 images_all = {}
                 for cam_name in camera_names:
-                    images_all[cam_name] = root[f'/observations/images/{cam_name}'][()]
+                    imgs_np = root[f'/observations/images/{cam_name}'][()]
+                    imgs_t = torch.from_numpy(imgs_np).float()
+                    imgs_t = torch.einsum('n h w c -> n c h w', imgs_t)
+                    imgs_t = F.interpolate(imgs_t, size=(240, 320), mode='bilinear', align_corners=False)
+                    imgs_t = torch.einsum('n c h w -> n h w c', imgs_t)
+                    images_all[cam_name] = imgs_t.byte().numpy()
                 
                 qpos_all = root['/observations/qpos'][()]
                 action_all = root['/action'][()]
@@ -101,8 +106,7 @@ class PreloadedEpisodicDataset(torch.utils.data.Dataset):
         
         image_data = torch.einsum('k h w c -> k c h w', image_data)
         image_data = image_data / 255.0
-        # Resize to 240x320 for 4x training speedup
-        image_data = F.interpolate(image_data, size=(240, 320), mode='bilinear', align_corners=False)
+        # Images are already pre-resized in __init__ to 240x320
         
         action_data = (action_data - self.norm_stats["action_mean"]) / self.norm_stats["action_std"]
         qpos_data = (qpos_data - self.norm_stats["qpos_mean"]) / self.norm_stats["qpos_std"]
@@ -116,8 +120,8 @@ def train_and_eval_one_episode():
     
     # 1. Modify configs for 1 episode overfitting
     POLICY_CONFIG['kl_weight'] = 10
-    POLICY_CONFIG['lr'] = 1e-4
-    POLICY_CONFIG['lr_backbone'] = 1e-5
+    POLICY_CONFIG['lr'] = 5e-5
+    POLICY_CONFIG['lr_backbone'] = 5e-6
     POLICY_CONFIG['temporal_agg'] = True
     
     # We load stats only on episode 1
@@ -169,6 +173,8 @@ def train_and_eval_one_episode():
     # Make policy
     policy_config = POLICY_CONFIG.copy()
     policy_config['device'] = device
+    policy_config['lr'] = 5e-5
+    policy_config['lr_backbone'] = 5e-6
     policy = make_policy(policy_config['policy_class'], policy_config)
     policy.to(device)
     
@@ -176,12 +182,17 @@ def train_and_eval_one_episode():
     
     # 2. Train for 300 epochs
     print("\n=== STARTING OVERFITTING TRAINING ON EPISODE 1 ===", flush=True)
+    best_l1_avg = float('inf')
     policy.train()
     for epoch in range(300):
         epoch_loss = 0
         epoch_l1 = 0
         epoch_l1_pos0 = 0
         epoch_l1_pos1 = 0
+        epoch_l1_pos2 = 0
+        epoch_l1_pos30 = 0
+        epoch_l1_pos60 = 0
+        epoch_l1_pos90 = 0
         epoch_kl = 0
         batch_count = 0
         for data in train_dataloader:
@@ -201,8 +212,9 @@ def train_and_eval_one_episode():
             epoch_l1 += forward_dict['l1'].item()
             epoch_kl += forward_dict['kl'].item()
             
-            # Position 0 L1
             a_hat = forward_dict['a_hat']
+            
+            # Position 0 L1
             l1_pos0 = torch.abs(action_data[:, 0] - a_hat[:, 0])
             mask0 = ~is_pad[:, 0].unsqueeze(-1)
             l1_pos0 = (l1_pos0 * mask0).sum() / (mask0.sum() + 1e-6)
@@ -212,12 +224,43 @@ def train_and_eval_one_episode():
             mask1 = ~is_pad[:, 1].unsqueeze(-1)
             l1_pos1 = (l1_pos1 * mask1).sum() / (mask1.sum() + 1e-6)
             
+            # Position 2 L1
+            l1_pos2 = torch.abs(action_data[:, 2] - a_hat[:, 2])
+            mask2 = ~is_pad[:, 2].unsqueeze(-1)
+            l1_pos2 = (l1_pos2 * mask2).sum() / (mask2.sum() + 1e-6)
+            
+            # Position 30 L1
+            l1_pos30 = torch.abs(action_data[:, 30] - a_hat[:, 30])
+            mask30 = ~is_pad[:, 30].unsqueeze(-1)
+            l1_pos30 = (l1_pos30 * mask30).sum() / (mask30.sum() + 1e-6)
+            
+            # Position 60 L1
+            l1_pos60 = torch.abs(action_data[:, 60] - a_hat[:, 60])
+            mask60 = ~is_pad[:, 60].unsqueeze(-1)
+            l1_pos60 = (l1_pos60 * mask60).sum() / (mask60.sum() + 1e-6)
+            
+            # Position 90 L1
+            l1_pos90 = torch.abs(action_data[:, 90] - a_hat[:, 90])
+            mask90 = ~is_pad[:, 90].unsqueeze(-1)
+            l1_pos90 = (l1_pos90 * mask90).sum() / (mask90.sum() + 1e-6)
+            
             epoch_l1_pos0 += l1_pos0.item()
             epoch_l1_pos1 += l1_pos1.item()
+            epoch_l1_pos2 += l1_pos2.item()
+            epoch_l1_pos30 += l1_pos30.item()
+            epoch_l1_pos60 += l1_pos60.item()
+            epoch_l1_pos90 += l1_pos90.item()
             batch_count += 1
             
+        current_l1_avg = epoch_l1 / batch_count
+        if current_l1_avg < best_l1_avg:
+            best_l1_avg = current_l1_avg
+            best_ckpt_path = os.path.join(checkpoint_dir, 'policy_best.ckpt')
+            torch.save(policy.state_dict(), best_ckpt_path)
+            print(f"--> Epoch {epoch+1}: New best L1_avg = {best_l1_avg:.6f}. Checkpoint saved to policy_best.ckpt", flush=True)
+            
         if (epoch + 1) % 10 == 0:
-            print(f"Epoch {epoch+1:3d} | Loss: {epoch_loss/batch_count:.6f} | L1_avg: {epoch_l1/batch_count:.6f} | L1_pos0: {epoch_l1_pos0/batch_count:.6f} | L1_pos1: {epoch_l1_pos1/batch_count:.6f} | KL: {epoch_kl/batch_count:.6f}", flush=True)
+            print(f"Epoch {epoch+1:3d} | Loss: {epoch_loss/batch_count:.6f} | L1_avg: {epoch_l1/batch_count:.6f} | L1_pos0: {epoch_l1_pos0/(batch_count*8):.6f} | L1_pos1: {epoch_l1_pos1/(batch_count*8):.6f} | L1_pos2: {epoch_l1_pos2/(batch_count*8):.6f} | L1_pos30: {epoch_l1_pos30/(batch_count*8):.6f} | L1_pos60: {epoch_l1_pos60/(batch_count*8):.6f} | L1_pos90: {epoch_l1_pos90/(batch_count*8):.6f} | KL: {epoch_kl/batch_count:.6f}", flush=True)
             
     # Save checkpoint
     ckpt_path = os.path.join(checkpoint_dir, 'policy_last_1000epochs.ckpt')
@@ -228,12 +271,17 @@ def train_and_eval_one_episode():
     print("\n=== STARTING ROLLOUT EVALUATION ===")
     policy.eval()
     
+    # Load best checkpoint for rollout evaluation
+    best_ckpt_path = os.path.join(checkpoint_dir, 'policy_best.ckpt')
+    policy.load_state_dict(torch.load(best_ckpt_path, map_location=device))
+    print(f"Loaded best checkpoint from {best_ckpt_path} for rollout evaluation (Best L1_avg = {best_l1_avg:.6f})")
+    
     # Load episode 1 data to set initial state and track targets
     with h5py.File(os.path.join(dataset_dir, "episode_1.hdf5"), 'r') as root:
         true_actions = root['action'][()]
         true_qpos = root['observations/qpos'][()]
         
-    env = gym.make("PandaPickAndPlace-v3", control_type="joints", render_mode="rgb_array", render_width=640, render_height=480)
+    env = gym.make("PandaPickAndPlace-v3", control_type="joints", render_mode="rgb_array", render_width=640, render_height=480, max_episode_steps=150)
     obs, info = env.reset()
     robot = env.unwrapped.robot
     sim = env.unwrapped.sim
@@ -252,6 +300,10 @@ def train_and_eval_one_episode():
     sim.set_base_pose("object", position=cube_pos, orientation=np.array([1.0, 0.0, 0.0, 0.0]))
     sim.set_base_pose("target", position=target_pos, orientation=np.array([1.0, 0.0, 0.0, 0.0]))
     env.unwrapped.task.goal = target_pos.copy()
+    
+    # Override stale initial observations
+    obs['achieved_goal'] = cube_pos.copy()
+    obs['desired_goal'] = target_pos.copy()
     
     pre_process = lambda s_qpos: (s_qpos - stats['qpos_mean']) / stats['qpos_std']
     post_process = lambda a: a * stats['action_std'] + stats['action_mean']
