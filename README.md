@@ -16,6 +16,9 @@ An end-to-end implementation of **ACT (Action Chunking Transformer)** for closed
 | 4. Full 55-episode training | ⏳ Pending |
 | 5. Evaluation on unseen seeds + deliverables | ⏳ Pending |
 
+**Detailed Project Documentation:**  
+> The complete project status, experiment logs, training results, debugging notes, and stage-wise progress are documented in the [`docs/`](./docs/) folder.
+
 ---
 
 ## Why Staged Validation
