@@ -16,7 +16,7 @@ from training.utils import make_policy, get_image
 device = os.environ.get('DEVICE', 'cuda')
 task = 'panda_pick_and_place'
 checkpoint_dir = os.path.join(TRAIN_CONFIG['checkpoint_dir'], task)
-artifacts_dir = '/home/sanjay/.gemini/antigravity/brain/afe0fc21-6fac-4890-9e52-4e3fbf7eec4c'
+artifacts_dir = 'data/rendered_video'
 
 def save_video_cv2(path, images, fps=20):
     h, w = images[0].shape[:2]

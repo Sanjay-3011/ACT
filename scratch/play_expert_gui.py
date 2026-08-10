@@ -23,6 +23,7 @@ sim.set_base_pose("target", position=qpos_init[11:14], orientation=np.array([1.0
 env.unwrapped.task.goal = qpos_init[11:14].copy()
 sim.step()
 
+success_printed = False
 print("Playing expert trajectory in GUI...")
 for t, action in enumerate(actions):
     env.step(action[:8])
@@ -32,8 +33,10 @@ for t, action in enumerate(actions):
     cube_pos = sim.get_base_position("object")
     target_pos = sim.get_base_position("target")
     dist = np.linalg.norm(cube_pos - target_pos)
-    if dist < 0.05:
+    if dist < 0.05 and not success_printed:
         print(f"Success achieved at step {t}!")
-        time.sleep(1.0) # Pause to show success
-        break
+        success_printed = True
+
+print("\nTrajectory playback complete.")
+input("Press [Enter] in the terminal to close the visualizer... ")
 env.close()

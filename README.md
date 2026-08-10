@@ -50,6 +50,11 @@ pip install -r requirements.txt
 ./venv_act/bin/python scratch/overfit_one_episode.py --task panda_pick_and_place
 ```
 
+**2. Play the signle-episode overfitting policy trajetory simulation:**
+```bash
+DEVICE=cuda ./venv_act/bin/python scratch/play_policy_gui.py
+```
+
 ---
 
 ## Next Steps

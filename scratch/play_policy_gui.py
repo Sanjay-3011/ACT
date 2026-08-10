@@ -35,7 +35,7 @@ policy.to(device)
 policy.eval()
 
 # Create env in GUI mode
-env = gym.make("PandaPickAndPlace-v3", control_type="joints", render_mode="human", render_width=640, render_height=480, max_episode_steps=150)
+env = gym.make("PandaPickAndPlace-v3", control_type="joints", render_mode="human", render_width=640, render_height=480, max_episode_steps=250)
 obs, info = env.reset(seed=42)
 robot = env.unwrapped.robot
 sim = env.unwrapped.sim
@@ -61,11 +61,12 @@ obs['desired_goal'] = target_pos.copy()
 
 temporal_agg = POLICY_CONFIG['temporal_agg']
 query_frequency = POLICY_CONFIG['num_queries']
-all_time_actions = torch.zeros([150, 150 + query_frequency, POLICY_CONFIG['action_dim']]).to(device)
+all_time_actions = torch.zeros([250, 250 + query_frequency, POLICY_CONFIG['action_dim']]).to(device)
+success_printed = False
 
 print("Playing trained policy rollout in GUI...")
-for t in range(150):
-    # Direct PyBullet query to bypass "direct mode only" check inside sim.render
+for t in range(250):
+    # Direct PyBullet query to get image using CPU TinyRenderer to match training distribution!
     target_pos_cam = env.unwrapped.render_target_position
     view_matrix = sim.physics_client.computeViewMatrixFromYawPitchRoll(
         cameraTargetPosition=target_pos_cam,
@@ -84,7 +85,7 @@ for t in range(150):
         viewMatrix=view_matrix,
         projectionMatrix=proj_matrix,
         shadow=True,
-        renderer=p.ER_BULLET_HARDWARE_OPENGL,
+        renderer=p.ER_TINY_RENDERER,
     )
     rgba = np.array(rgba, dtype=np.uint8).reshape((480, 640, 4))
     img = rgba[..., :3]
@@ -126,13 +127,13 @@ for t in range(150):
     time.sleep(0.02) # Control playback speed (50 Hz)
     
     dist = np.linalg.norm(obs['achieved_goal'] - obs['desired_goal'])
-    is_success = dist < 0.05
-    if is_success:
+    if dist < 0.05 and not success_printed:
         print(f"Success achieved at step {t}!")
-        time.sleep(1.0) # Pause to show success
-        break
+        success_printed = True
         
 final_dist = np.linalg.norm(obs['achieved_goal'] - obs['desired_goal'])
+is_success = final_dist < 0.05
 print(f"Final placement error: {final_dist*100:.2f} cm")
 print(f"Success: {is_success}")
+input("\nRollout complete. Press [Enter] in the terminal to close the visualizer... ")
 env.close()
