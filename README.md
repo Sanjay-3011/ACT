@@ -17,7 +17,7 @@ An end-to-end implementation of **ACT (Action Chunking Transformer)** for closed
 | 5. Evaluation on unseen seeds + deliverables | ⏳ Pending |
 
 **Detailed Project Documentation:**  
-> The complete project status, experiment logs, training results, debugging notes, and stage-wise progress are documented in the [`docs/`](./docs/) folder.
+> The complete project status, experiment logs, training results, debugging notes, and stage-wise progress are documented in the [Documents](./Docs/) folder.
 
 ---
 
